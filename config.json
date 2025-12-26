@@ -1,9 +1,0 @@
-{
-  "bootloader": "Systemd-boot",
-  "kernels": ["linux"],
-  "packages": ["vim", "git"],
-  "profile_config": {
-    "profile": "desktop",
-    "desktop": "xfce4"
-  }
-}
