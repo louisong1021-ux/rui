@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
-set -euo pipefail
+
+# 更兼容：避免 pipefail 在非 bash/特殊解析环境报错
+set -eu
+set -o pipefail 2>/dev/null || true
 
 # 你的仓库 raw 地址（已按你的仓库固定）
 RAW_BASE="https://raw.githubusercontent.com/louisong1021-ux/rui/main"
@@ -19,7 +22,12 @@ need() { command -v "$1" >/dev/null 2>&1 || { echo "缺少命令: $1"; exit 1; }
 
 need curl
 need python
-need archinstall || { echo "必须使用官方 Arch ISO（UEFI）"; exit 1; }
+
+# archinstall 在官方 Arch ISO 里一般自带；若没有就提示
+if ! command -v archinstall >/dev/null 2>&1; then
+  echo "缺少 archinstall。请使用官方 Arch ISO，或先执行：pacman -Sy archinstall"
+  exit 1
+fi
 
 # 1) UEFI 检测
 if [[ ! -d /sys/firmware/efi ]]; then
@@ -30,16 +38,15 @@ fi
 echo "⚠️ 即将清空磁盘: $DISK"
 lsblk
 read -r -p "输入 YES 确认清盘: " ok
-[[ "$ok" == "YES" ]] || exit 1
+[[ "$ok" == "YES" ]] || { echo "已取消"; exit 1; }
 
-# 2) 拉取 config.json
+# 2) 拉取 config.json（必须存在）
 curl -fsSL "$RAW_BASE/config.json" -o /root/config.json
 
 # 3) 强制修正配置（磁盘 / XFCE / 中文 / 必要包）
 python - <<'PY'
 import json, re
 
-DISK="/dev/sda"
 REQUIRED_PKGS={
   "networkmanager",
   "sudo",
@@ -49,9 +56,10 @@ REQUIRED_PKGS={
 }
 
 p="/root/config.json"
-d=json.load(open(p,"r",encoding="utf-8"))
+with open(p,"r",encoding="utf-8") as f:
+  d=json.load(f)
 
-# 基础信息（强制）
+# 强制基础信息
 d["hostname"]="arch-test"
 d["timezone"]="America/Los_Angeles"
 
@@ -60,6 +68,8 @@ pc=d.get("profile_config",{})
 pc["profile"]="desktop"
 pc["desktop"]="xfce4"
 d["profile_config"]=pc
+
+# 兼容字段（无害）
 d["profile"]="desktop"
 d["desktop-environment"]="xfce4"
 d["desktop_environment"]="xfce4"
@@ -76,12 +86,14 @@ lc["sys_enc"]="UTF-8"
 lc["kb_layout"]="us"
 d["locale_config"]=lc
 
-# 强制磁盘为 /dev/sda（替换任何出现的 nvme0n1/sda）
+# 强制磁盘为 /dev/sda：替换 JSON 中任何出现的 /dev/sda 或 /dev/nvme0n1
 txt=json.dumps(d)
 txt=re.sub(r'"/dev/(nvme0n1|sda)"','"/dev/sda"',txt)
 d=json.loads(txt)
 
-json.dump(d,open(p,"w",encoding="utf-8"),indent=2,ensure_ascii=False)
+with open(p,"w",encoding="utf-8") as f:
+  json.dump(d,f,indent=2,ensure_ascii=False)
+
 print("✅ config.json 已锁定为 /dev/sda + XFCE + zh_CN.UTF-8 + 必要包")
 PY
 
