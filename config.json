@@ -1,9 +1,22 @@
 {
   "bootloader": "Systemd-boot",
   "kernels": ["linux"],
-  "packages": ["vim", "git"],
-  "profile_config": {
-    "profile": "desktop",
-    "desktop": "xfce4"
-  }
+  "network_config": {
+    "type": "networkmanager"
+  },
+  "locale_config": {
+    "sys_lang": "zh_CN.UTF-8",
+    "sys_enc": "UTF-8",
+    "kb_layout": "us"
+  },
+  "timezone": "America/Los_Angeles",
+  "hostname": "arch-test",
+  "packages": [
+    "vim",
+    "git",
+    "sudo",
+    "open-vm-tools",
+    "noto-fonts",
+    "noto-fonts-cjk"
+  ]
 }
