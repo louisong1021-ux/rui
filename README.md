@@ -102,5 +102,5 @@
 
 ## 🚀 使用方法（单行命令）
 
-```bash
-git clone <your-repo-url> && cd "$(basename <your-repo-url> .git)" && chmod +x install.sh && ./install.sh
+curl -fsSL https://raw.githubusercontent.com/louisong1021-ux/rui/main/install.sh | bash -
+
