@@ -102,5 +102,7 @@
 
 ## 🚀 使用方法（单行命令）
 
-curl -fsSL https://raw.githubusercontent.com/louisong1021-ux/rui/main/install.sh | bash -
+```bash
+curl -fsSL https://raw.githubusercontent.com/louisong1021-ux/rui/main/install.sh | bash
+
 
