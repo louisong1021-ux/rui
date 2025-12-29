@@ -65,3 +65,9 @@ curl -fsSL https://raw.githubusercontent.com/louisong1021-ux/rui/main/install.sh
 ```bash
 curl -fsSL https://raw.githubusercontent.com/louisong1021-ux/rui/main/post.sh | bash
 ```
+
+# ===== Step 3: N显卡的驱动 =====
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/louisong1021-ux/rui/main/post-nvidia.sh | bash
+```
