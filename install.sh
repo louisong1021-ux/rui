@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# ================= 基本配置 =================
-DISK="/dev/sda"
+# ================= 固定配置（骨架）=================
+DISK="/dev/sda"          # ⚠️ 目标磁盘（会被完全清空）
 HOSTNAME="arch-test"
 USERNAME="rui"
 
@@ -10,39 +10,47 @@ TZ="America/Los_Angeles"
 LOCALE="zh_CN.UTF-8"
 KEYMAP="us"
 
-# 测试密码（公开仓库允许）
 ROOTPW="root"
 USERPW="123456"
 
 ESP_SIZE="512MiB"
-SWAP_SIZE="2GiB"
-# ============================================
+SWAP_SIZE="2GiB"         # 0GiB 表示不建 swap
+# ================================================
+
+# ================= 日志 =================
+exec > >(tee -a /root/install.log) 2>&1
+# ======================================
 
 die(){ echo -e "\033[31m❌ $*\033[0m" >&2; exit 1; }
 need(){ command -v "$1" >/dev/null 2>&1 || die "缺少命令: $1"; }
 
-for c in lsblk sgdisk mkfs.fat mkfs.ext4 mount pacstrap genfstab arch-chroot timedatectl; do
+for c in lsblk sgdisk mkfs.fat mkfs.ext4 mount pacstrap genfstab arch-chroot timedatectl partprobe udevadm; do
   need "$c"
 done
 
-# 必须 UEFI
-[[ -d /sys/firmware/efi ]] || die "必须使用 UEFI 启动 Arch ISO"
+[[ -d /sys/firmware/efi ]] || die "必须使用 UEFI 启动（/sys/firmware/efi 不存在）"
 
-echo "⚠️ 即将清空磁盘: ${DISK}"
-lsblk
-read -r -p "输入 YES 确认继续: " ok < /dev/tty
+# ================= 磁盘安全检查 =================
+lsblk -d -o NAME,SIZE,MODEL,TRAN
+echo
+read -r -p "⚠️ 确认清空磁盘 ${DISK}（输入 YES 继续）: " ok < /dev/tty
 [[ "$ok" == "YES" ]] || die "已取消"
 
-# 时间同步（网络正常情况下）
-timedatectl set-ntp true || true
+lsblk -no TYPE "${DISK}" | grep -q disk || die "${DISK} 不是磁盘设备"
+# ===============================================
 
-# 预清理
+# ================= 基础准备 =================
+timedatectl set-ntp true || true
+pacman -Sy --noconfirm archlinux-keyring
+
 umount -R /mnt 2>/dev/null || true
 swapoff -a 2>/dev/null || true
+# ===============================================
 
-# ================= 分区（GPT + UEFI） =================
+# ================= 分区（GPT / UEFI） =================
 sgdisk --zap-all "${DISK}"
 sgdisk -o "${DISK}"
+
 sgdisk -n 1:0:+"${ESP_SIZE}" -t 1:ef00 -c 1:"EFI" "${DISK}"
 
 if [[ "${SWAP_SIZE}" != "0" && "${SWAP_SIZE}" != "0GiB" ]]; then
@@ -51,59 +59,52 @@ if [[ "${SWAP_SIZE}" != "0" && "${SWAP_SIZE}" != "0GiB" ]]; then
   ESP="${DISK}1"; SWP="${DISK}2"; ROOT="${DISK}3"
 else
   sgdisk -n 2:0:0 -t 2:8300 -c 2:"ROOT" "${DISK}"
-  ESP="${DISK}1"; ROOT="${DISK}2"; SWP=""
+  ESP="${DISK}1"; SWP=""; ROOT="${DISK}2"
 fi
+
+partprobe "${DISK}" || true
+udevadm settle || true
+# =====================================================
 
 # ================= 格式化 =================
 mkfs.fat -F32 "${ESP}"
 mkfs.ext4 -F "${ROOT}"
-if [[ -n "${SWP}" ]]; then
-  mkswap "${SWP}"
-  swapon "${SWP}"
-fi
+[[ -n "${SWP}" ]] && mkswap "${SWP}" && swapon "${SWP}"
+# ==========================================
 
 # ================= 挂载 =================
 mount "${ROOT}" /mnt
 mkdir -p /mnt/boot
 mount "${ESP}" /mnt/boot
+# =======================================
 
-# ================= 安装系统（仅使用官方仓库存在的包） =================
-# 说明：
-# - Dash to Dock / Blur My Shell：不在官方仓库稳定提供，建议登录后通过 Extensions / extensions.gnome.org 安装
-# - Fcitx5 拼音：包含在 fcitx5-chinese-addons（不存在 fcitx5-pinyin 这个包名）
+# ================= pacstrap（官方仓库骨架） =================
 pacstrap -K /mnt \
   base linux linux-firmware \
   grub efibootmgr \
   networkmanager sudo vim git \
   gnome gdm gnome-tweaks \
-  dconf-editor gnome-themes-extra gnome-backgrounds \
-  gnome-shell-extensions gnome-browser-connector \
   fcitx5 fcitx5-im fcitx5-chinese-addons \
-  noto-fonts noto-fonts-cjk ttf-dejavu ttf-liberation ttf-jetbrains-mono \
+  noto-fonts noto-fonts-cjk ttf-dejavu ttf-liberation \
   pipewire pipewire-alsa pipewire-pulse wireplumber \
-  gst-libav gst-plugins-good gst-plugins-bad gst-plugins-ugly \
   bluez bluez-utils \
-  wl-clipboard gnome-screenshot \
-  ntfs-3g exfatprogs dosfstools \
   open-vm-tools \
   base-devel
+# ============================================================
 
-# fstab
-genfstab -U /mnt >> /mnt/etc/fstab
+genfstab -U /mnt > /mnt/etc/fstab
 
-# ================= chroot 配置 =================
+# ================= chroot 基础配置 =================
 arch-chroot /mnt /bin/bash -euo pipefail <<CHROOT
-# 时区/时钟
+
 ln -sf /usr/share/zoneinfo/${TZ} /etc/localtime
 hwclock --systohc
 
-# locale
 sed -i "s/^#\\(${LOCALE} UTF-8\\)/\\1/" /etc/locale.gen
 locale-gen
 echo "LANG=${LOCALE}" > /etc/locale.conf
 echo "KEYMAP=${KEYMAP}" > /etc/vconsole.conf
 
-# hostname & hosts
 echo "${HOSTNAME}" > /etc/hostname
 cat > /etc/hosts <<EOF
 127.0.0.1 localhost
@@ -111,47 +112,41 @@ cat > /etc/hosts <<EOF
 127.0.1.1 ${HOSTNAME}.localdomain ${HOSTNAME}
 EOF
 
-# root 密码
 echo "root:${ROOTPW}" | chpasswd
-
-# 用户 + sudo
-if ! id -u "${USERNAME}" >/dev/null 2>&1; then
-  useradd -m -G wheel -s /bin/bash "${USERNAME}"
-fi
+useradd -m -G wheel -s /bin/bash "${USERNAME}"
 echo "${USERNAME}:${USERPW}" | chpasswd
-sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
 
-# 启用服务
+# sudoers（drop-in，安全）
+echo "%wheel ALL=(ALL:ALL) ALL" > /etc/sudoers.d/10-wheel
+chmod 440 /etc/sudoers.d/10-wheel
+
+# 服务
 systemctl enable NetworkManager
 systemctl enable gdm
-systemctl enable vmtoolsd
 systemctl enable bluetooth
+systemctl enable vmtoolsd
 
-# Fcitx5 输入法环境变量（全局）
+# 输入法环境变量
 cat > /etc/environment <<EOF
 GTK_IM_MODULE=fcitx
 QT_IM_MODULE=fcitx
 XMODIFIERS=@im=fcitx
 EOF
 
-# 安装 GRUB（UEFI）
+# GRUB
 grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=ARCH
 grub-mkconfig -o /boot/grub/grub.cfg
 
-# ===== AUR：安装 yay + Chrome + 美化资源（只安装，不配置）=====
-cd /opt
-rm -rf yay || true
-git clone https://aur.archlinux.org/yay.git
-chown -R ${USERNAME}:${USERNAME} /opt/yay
-sudo -u ${USERNAME} bash -lc 'cd /opt/yay && makepkg -si --noconfirm'
+# MOTD 提示
+cat > /etc/motd <<'EOF'
+✅ Arch 骨架系统安装完成
+下一步（登录系统后执行）：
+curl -fsSL https://raw.githubusercontent.com/louisong1021-ux/rui/main/post.sh | bash
+EOF
 
-sudo -u ${USERNAME} bash -lc 'yay -S --noconfirm --needed \
-  google-chrome \
-  whitesur-gtk-theme orchis-theme \
-  tela-icon-theme papirus-icon-theme \
-  bibata-cursor-theme'
 CHROOT
+# =====================================================
 
-# 完成
 umount -R /mnt
+echo "✅ 安装完成，系统将重启"
 reboot
