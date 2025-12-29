@@ -61,13 +61,11 @@
 > install.sh 的目标只有一个：  
 > **系统可启动、可登录 GNOME、功能完整但外观干净**
 
----
-
-### 👉 一键运行（在 Arch ISO 中）
-
 ```bash
 curl -fsSL https://raw.githubusercontent.com/louisong1021-ux/rui/main/install.sh | bash
 ```
+
+
 2️⃣ post.sh —— 常用软件 & 美化资源
 
 运行环境：已安装系统，登录 GNOME 后，以普通用户执行
@@ -101,6 +99,8 @@ GTK 主题
 ```bash
 curl -fsSL https://raw.githubusercontent.com/louisong1021-ux/rui/main/post.sh | bash
 ```
+
+
 
 3️⃣ post-nvidia.sh —— NVIDIA GTX 显卡驱动（真机）
 
