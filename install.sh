@@ -83,7 +83,7 @@ pacstrap -K /mnt \
   base linux linux-firmware \
   grub efibootmgr \
   networkmanager sudo vim git \
-  gnome gdm gnome-tweaks \
+  gnome gdm gnome-tweaks extension-manager \
   fcitx5 fcitx5-im fcitx5-chinese-addons \
   noto-fonts noto-fonts-cjk ttf-dejavu ttf-liberation \
   pipewire pipewire-alsa pipewire-pulse wireplumber \
@@ -136,13 +136,6 @@ EOF
 # GRUB
 grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=ARCH
 grub-mkconfig -o /boot/grub/grub.cfg
-
-# MOTD 提示
-cat > /etc/motd <<'EOF'
-✅ Arch 骨架系统安装完成
-下一步（登录系统后执行）：
-curl -fsSL https://raw.githubusercontent.com/louisong1021-ux/rui/main/post.sh | bash
-EOF
 
 CHROOT
 # =====================================================
