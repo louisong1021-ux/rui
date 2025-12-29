@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # ================= 固定配置（骨架） =================
-# 磁盘会在脚本开始时交互选择
+# 磁盘 DISK 将在脚本开始时交互选择，不在这里写死
 HOSTNAME="arch-test"
 USERNAME="rui"
 
@@ -40,12 +40,12 @@ part() {
 # ================= 运行环境选择 =================
 echo
 echo "请选择安装环境："
-echo "  1) 真机（Physical Machine：XPS 8930 + NVIDIA GTX）"
+echo "  1) 真机（Physical Machine，例如 XPS 8930）"
 echo "  2) VMware 虚拟机"
 echo
 read -r -p "请输入 1 或 2: " INSTALL_ENV < /dev/tty
 case "$INSTALL_ENV" in
-  1) ENV_TYPE="physical"; echo "✔ 已选择：真机安装（NVIDIA GTX）" ;;
+  1) ENV_TYPE="physical"; echo "✔ 已选择：真机安装" ;;
   2) ENV_TYPE="vmware";  echo "✔ 已选择：VMware 虚拟机安装" ;;
   *) die "无效选择，必须输入 1 或 2" ;;
 esac
@@ -53,7 +53,9 @@ echo
 
 # ================= 自动列出磁盘并选择 =================
 echo "===== 检测到的可用磁盘（将被清空，请谨慎选择）====="
+# 仅列出磁盘（TYPE=disk），排除 loop/rom
 mapfile -t DISKS < <(lsblk -dn -o NAME,TYPE | awk '$2=="disk"{print $1}')
+
 ((${#DISKS[@]} > 0)) || die "未检测到可用磁盘"
 
 for i in "${!DISKS[@]}"; do
@@ -133,16 +135,12 @@ BASE_PKGS=(
   base-devel
 )
 
+# 真机：Intel 微码（XPS 8930 适用）
 if [[ "$ENV_TYPE" == "physical" ]]; then
-  # XPS 8930（Intel CPU + NVIDIA GTX）真机增强（克制版）
-  BASE_PKGS+=(
-    intel-ucode      # Intel CPU 微码：必须
-    mesa             # 通用图形栈：必须（即使走 NVIDIA）
-    thermald         # 温控：强烈推荐（Dell/Intel 真机）
-    lm_sensors       # 监控：推荐
-  )
+  BASE_PKGS+=(intel-ucode)
 fi
 
+# VMware：VMware 工具
 if [[ "$ENV_TYPE" == "vmware" ]]; then
   BASE_PKGS+=(open-vm-tools)
 fi
@@ -179,10 +177,9 @@ systemctl enable NetworkManager
 systemctl enable gdm
 systemctl enable bluetooth
 
-# 真机：SSD TRIM + thermald
+# 真机建议：SSD TRIM
 if [[ "${ENV_TYPE}" == "physical" ]]; then
   systemctl enable fstrim.timer
-  systemctl enable thermald
 fi
 
 # VMware：启用 vmtoolsd
@@ -190,7 +187,7 @@ if [[ "${ENV_TYPE}" == "vmware" ]]; then
   systemctl enable vmtoolsd
 fi
 
-# 输入法环境变量（Wayland/X11 通用）
+# 输入法环境变量（Wayland/X11 都通用）
 cat > /etc/environment <<EOF
 GTK_IM_MODULE=fcitx
 QT_IM_MODULE=fcitx
