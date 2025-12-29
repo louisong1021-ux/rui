@@ -1,108 +1,60 @@
-# Arch Linux GNOME Automated Installer
+# Arch Linux + GNOME 自动化安装脚本
 
-这是一个用于 **UEFI 环境** 的 Arch Linux 自动化安装脚本，目标是一次性部署一套：
+一套 **两阶段（Two-Stage）** 的 Arch Linux 自动化安装方案，设计目标为：
+
+- ✅ **稳定**：适配 Arch Linux 滚动更新策略  
+- ✅ **可维护**：系统骨架与桌面美化彻底解耦  
+- ✅ **通用性**：适用于真机与虚拟机（VMware）  
+- ✅ **低侵入**：不强制任何 GNOME 扩展或外观偏好  
+
+本项目强调 **“先把系统稳定装好，再由用户决定桌面体验”**。
+
+---
+
+## 脚本结构说明
+
+本仓库包含 **两个脚本，必须按顺序执行**：
+
+---
+
+### 1️⃣ `install.sh` —— 系统骨架安装  
+**运行环境：Arch Linux 官方 ISO（UEFI 模式）**
+
+该脚本负责完成 **系统级安装与基础配置**，包括：
 
 - Arch Linux 基础系统
-- GNOME 桌面环境
-- 完整中文支持
-- 常用桌面与美化工具
-- 适合虚拟机 / 测试环境的可维护方案
-
----
-
-## ✨ 特性
-
-- UEFI + GPT 自动分区
-- GNOME + GDM 桌面
-- Fcitx5 中文输入法（拼音）
+- UEFI + GRUB 启动引导
+- GNOME 桌面环境（GDM）
+- 中文输入法框架（Fcitx5）
 - PipeWire 音频系统
-- 蓝牙支持
-- NTFS / exFAT 文件系统支持
-- Google Chrome（AUR）
-- GNOME 美化工具（不自动配置）
-- VMware 虚拟机支持（open-vm-tools）
+- 网络（NetworkManager）与蓝牙
+- VMware 虚拟机支持
+- GNOME Tweaks 与 Extension Manager（仅工具，不安装扩展）
+
+**目标：系统可启动、可登录 GNOME、中文环境就绪**
 
 ---
 
-## 🖥 已安装内容概览
+### 2️⃣ `post.sh` —— 系统内后配置  
+**运行环境：已安装系统，登录 GNOME 后，以普通用户执行**
 
-### 系统与引导
-- base / linux / linux-firmware
-- grub / efibootmgr
+该脚本用于安装 **非系统必需但常用的软件与资源**，包括：
 
-### 桌面
-- gnome
-- gdm
-- gnome-tweaks
-- gnome-shell-extensions
-- dconf-editor
+- Google Chrome 浏览器
+- GNOME 美化资源（主题 / 图标 / 光标 / 字体）
+- AUR helper（`yay`，若系统中不存在）
 
-### 中文支持
-- fcitx5
-- fcitx5-im
-- fcitx5-chinese-addons
-- fcitx5-pinyin
-- noto-fonts / noto-fonts-cjk
-
-### 音频 / 多媒体
-- pipewire
-- wireplumber
-- gstreamer 插件全集
-
-### 文件系统
-- ntfs-3g
-- exfatprogs
-- dosfstools
+⚠️ **该脚本不会：**
+- 自动应用任何主题 / 图标 / 光标
+- 安装或启用任何 GNOME Shell 扩展
+- 修改 GNOME 设置或 dconf 配置
 
 ---
 
-## 🎨 GNOME 美化（仅安装工具）
+## 🚀 快速开始（一键复制）
 
-脚本 **只安装美化工具，不自动启用或配置**。
-
-### GNOME 扩展（官方仓库）
-- Dash to Dock（底部 Dock，可透明）
-- Blur My Shell（顶部栏 / Dock 毛玻璃）
-
-启用方式：
-登录 GNOME → 打开 **Extensions** → 手动开启并调整参数。
-
-### 主题 / 图标 / 光标（AUR）
-- GTK 主题：WhiteSur / Orchis
-- 图标：Tela / Papirus
-- 光标：Bibata
-
-使用 **GNOME Tweaks** 自行选择。
-
----
-
-## 🌐 浏览器
-- Google Chrome（AUR）
-
----
-
-## 👤 默认账户（测试用）
-
-⚠️ **仅适合虚拟机或测试环境**
-
-- 用户名：`rui`
-- 用户密码：`123456`
-- root 密码：`root`
-
----
-
-## ⚠️ 使用前须知
-
-- 必须以 **UEFI 模式** 启动 Arch ISO
-- 脚本会 **完全清空 `/dev/sda`**
-- 需要正常联网
-- AUR 软件存在一定风险，仅用于学习 / 测试
-
----
-
-## 🚀 使用方法（单行命令）
-
-```bash
+# ===== Step 1: 在 Arch Linux ISO（UEFI 模式）中运行 =====
 curl -fsSL https://raw.githubusercontent.com/louisong1021-ux/rui/main/install.sh | bash
 
-
+# ===== Step 2: 系统安装完成并登录 GNOME 后运行 =====
+curl -fsSL https://raw.githubusercontent.com/louisong1021-ux/rui/main/post.sh | bash
