@@ -65,10 +65,6 @@
 
 ### 👉 一键运行（在 Arch ISO 中）
 
-## 🚀 快速开始（一键复制）
-
-# ===== Step 1: 在 Arch Linux ISO（UEFI 模式）中运行 =====
-
 ```bash
 curl -fsSL https://raw.githubusercontent.com/louisong1021-ux/rui/main/install.sh | bash
 ```
@@ -101,8 +97,6 @@ GTK 主题
 修改 dconf / gsettings
 
 所有外观选择，完全由你在 GNOME Tweaks 中手动完成。
-# ===== Step 2: 系统安装完成并登录 GNOME 后运行 =====
-
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/louisong1021-ux/rui/main/post.sh | bash
@@ -121,10 +115,6 @@ post-nvidia.sh 做什么
 自动生成 initramfs
 
 不强制 Wayland / Xorg（由用户选择）
-
-👉 一键运行（真机可选）
-
-# ===== Step 3: N显卡的驱动 =====
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/louisong1021-ux/rui/main/post-nvidia.sh | bash
