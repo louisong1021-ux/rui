@@ -54,7 +54,10 @@
 ## 🚀 快速开始（一键复制）
 
 # ===== Step 1: 在 Arch Linux ISO（UEFI 模式）中运行 =====
+
+```bash
 curl -fsSL https://raw.githubusercontent.com/louisong1021-ux/rui/main/install.sh | bash
+
 
 # ===== Step 2: 系统安装完成并登录 GNOME 后运行 =====
 curl -fsSL https://raw.githubusercontent.com/louisong1021-ux/rui/main/post.sh | bash
