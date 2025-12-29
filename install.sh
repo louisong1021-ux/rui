@@ -24,7 +24,7 @@ exec > >(tee -a /root/install.log) 2>&1
 die(){ echo -e "\033[31m❌ $*\033[0m" >&2; exit 1; }
 need(){ command -v "$1" >/dev/null 2>&1 || die "缺少命令: $1"; }
 
-for c in lsblk sgdisk mkfs.fat mkfs.ext4 mount pacstrap genfstab arch-chroot timedatectl partprobe udevadm; do
+for c in lsblk sgdisk mkfs.fat mkfs.ext4 mount pacstrap genfstab arch-chroot timedatectl partprobe udevadm pacman-key; do
   need "$c"
 done
 
@@ -41,6 +41,10 @@ lsblk -no TYPE "${DISK}" | grep -q disk || die "${DISK} 不是磁盘设备"
 
 # ================= 基础准备 =================
 timedatectl set-ntp true || true
+
+echo "==> 初始化 pacman keyring（修复：Public keyring not found / keyring not writable）"
+pacman-key --init
+pacman-key --populate archlinux
 pacman -Sy --noconfirm archlinux-keyring
 
 umount -R /mnt 2>/dev/null || true
