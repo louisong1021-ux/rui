@@ -1,208 +1,272 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# ================= 固定配置（骨架） =================
-# 磁盘 DISK 将在脚本开始时交互选择，不在这里写死
-HOSTNAME="arch-test"
+# =====================================================
+# Arch Linux (Ventoy same disk) + GNOME + zh_CN + Fcitx5/Rime
+# Target: /dev/sde3 (EFI) + /dev/sde4 (ROOT)
+# =====================================================
+
+### ========= 固定目标 =========
+DISK="/dev/sde"
+ESP="${DISK}3"
+ROOT="${DISK}4"
+### ===========================
+
+### ========= 基础配置 =========
+HOSTNAME="arch-ventoy"
 USERNAME="rui"
+USER_GROUPS="wheel"
 
 TZ="America/Los_Angeles"
-LOCALE="zh_CN.UTF-8"
+LANG_PRIMARY="zh_CN.UTF-8"
+LANG_FALLBACK="en_US.UTF-8"
 KEYMAP="us"
+### ===========================
 
-# 测试用密码（你说公开仓库不介意泄露）
-ROOTPW="root"
-USERPW="123456"
+die(){ echo "ERROR: $*" >&2; exit 1; }
+need(){ command -v "$1" >/dev/null 2>&1 || die "Missing command: $1"; }
 
-ESP_SIZE="512MiB"
-SWAP_SIZE="2GiB"         # 设为 0GiB 可禁用 swap
-# ===================================================
+# 关键：从 /dev/tty 读取输入，保证 curl | bash 也能交互
+confirm_yes_or_exit() {
+  local prompt="$1"
+  local input=""
 
-die(){ echo -e "\033[31m❌ $*\033[0m" >&2; exit 1; }
-need(){ command -v "$1" >/dev/null 2>&1 || die "缺少命令: $1"; }
+  echo
+  echo "$prompt"
+  echo "Type 'yes' to continue (lowercase only). Anything else will abort."
+  echo -n "> "
 
-for c in lsblk sgdisk mkfs.fat mkfs.ext4 mount pacstrap genfstab arch-chroot timedatectl; do
-  need "$c"
-done
+  [[ -r /dev/tty ]] || die "No /dev/tty available; cannot read interactive input."
+  read -r input < /dev/tty || true
 
-[[ -d /sys/firmware/efi ]] || die "必须使用 UEFI 启动（/sys/firmware/efi 不存在）"
-
-# NVMe 分区名需要带 p：/dev/nvme0n1p1；SATA 则是 /dev/sda1
-part() {
-  local disk="$1" n="$2"
-  if [[ "$disk" =~ [0-9]$ ]]; then
-    echo "${disk}p${n}"
-  else
-    echo "${disk}${n}"
+  if [[ "$input" != "yes" ]]; then
+    echo "Confirmation failed. Abort."
+    exit 1
   fi
 }
 
-# ================= 运行环境选择 =================
-echo
-echo "请选择安装环境："
-echo "  1) 真机（Physical Machine，例如 XPS 8930）"
-echo "  2) VMware 虚拟机"
-echo
-read -r -p "请输入 1 或 2: " INSTALL_ENV < /dev/tty
-case "$INSTALL_ENV" in
-  1) ENV_TYPE="physical"; echo "✔ 已选择：真机安装" ;;
-  2) ENV_TYPE="vmware";  echo "✔ 已选择：VMware 虚拟机安装" ;;
-  *) die "无效选择，必须输入 1 或 2" ;;
-esac
-echo
+echo "== Arch + GNOME + zh_CN + Fcitx5/Rime installer =="
 
-# ================= 自动列出磁盘并选择 =================
-echo "===== 检测到的可用磁盘（将被清空，请谨慎选择）====="
-# 仅列出磁盘（TYPE=disk），排除 loop/rom
-mapfile -t DISKS < <(lsblk -dn -o NAME,TYPE | awk '$2=="disk"{print $1}')
+# -----------------------------------------------------
+# 0. 必须在 Arch ISO Live 环境
+# -----------------------------------------------------
+[ -f /etc/arch-release ] || die "This script must be run from Arch Linux live ISO"
 
-((${#DISKS[@]} > 0)) || die "未检测到可用磁盘"
-
-for i in "${!DISKS[@]}"; do
-  name="${DISKS[$i]}"
-  size="$(lsblk -dn -o SIZE "/dev/$name" | head -n1)"
-  model="$(lsblk -dn -o MODEL "/dev/$name" | head -n1)"
-  tran="$(lsblk -dn -o TRAN "/dev/$name" 2>/dev/null | head -n1 || true)"
-  echo "  [$i] /dev/${name}   size=${size}   model=${model:-unknown}   tran=${tran:-unknown}"
+# -----------------------------------------------------
+# 1. 必要命令检查
+# -----------------------------------------------------
+for c in lsblk wipefs mkfs.fat mkfs.ext4 mount umount pacstrap genfstab arch-chroot; do
+  need "$c"
 done
 
+# -----------------------------------------------------
+# 2. 第一次确认：破坏性操作提示（格式化前）
+# -----------------------------------------------------
 echo
-read -r -p "请输入磁盘编号进行安装（例如 0）： " DISK_IDX < /dev/tty
-[[ "$DISK_IDX" =~ ^[0-9]+$ ]] || die "请输入数字编号"
-(( DISK_IDX >= 0 && DISK_IDX < ${#DISKS[@]} )) || die "编号超出范围"
-
-DISK="/dev/${DISKS[$DISK_IDX]}"
-[[ -b "$DISK" ]] || die "磁盘不存在：$DISK"
-
+echo "⚠️  WARNING"
+echo "This script WILL ERASE the following partitions:"
+echo "  - ${ESP}  (EFI)"
+echo "  - ${ROOT} (ROOT)"
 echo
-echo "你选择的目标磁盘是：$DISK"
-lsblk "$DISK"
+echo "Ventoy partitions (${DISK}1, ${DISK}2) will NOT be touched."
+confirm_yes_or_exit "First confirmation (before any disk write)."
+
+# -----------------------------------------------------
+# 3. 显示磁盘结构 + 第二次确认
+# -----------------------------------------------------
 echo
-read -r -p "输入 YES 确认清空并安装到 ${DISK}: " ok < /dev/tty
-[[ "$ok" == "YES" ]] || die "已取消"
+echo "Target disk layout:"
+lsblk -o NAME,SIZE,FSTYPE,MOUNTPOINT "${DISK}" || die "Target disk not found"
 
-# 时间同步
-timedatectl set-ntp true || true
+confirm_yes_or_exit "Second confirmation: Is this the correct disk?"
 
-# 卸载旧挂载/交换
-umount -R /mnt 2>/dev/null || true
-swapoff -a 2>/dev/null || true
+# -----------------------------------------------------
+# 4. 护栏检查（防误盘）
+# -----------------------------------------------------
+lsblk "${DISK}1" >/dev/null 2>&1 || die "Expected Ventoy partition ${DISK}1 not found"
+lsblk "${DISK}2" >/dev/null 2>&1 || die "Expected Ventoy partition ${DISK}2 not found"
+lsblk "$ESP" >/dev/null 2>&1 || die "ESP not found: $ESP"
+lsblk "$ROOT" >/dev/null 2>&1 || die "ROOT not found: $ROOT"
 
-# ================= 分区 =================
-echo "===== 分区中（GPT + EFI）====="
-sgdisk --zap-all "${DISK}"
-sgdisk -o "${DISK}"
-sgdisk -n 1:0:+"${ESP_SIZE}" -t 1:ef00 -c 1:"EFI" "${DISK}"
+ESP_SIZE=$(lsblk -bno SIZE "$ESP")
+ROOT_SIZE=$(lsblk -bno SIZE "$ROOT")
+(( ESP_SIZE >= 256*1024*1024 )) || die "ESP too small (<256MB)"
+(( ROOT_SIZE >= 20*1024*1024*1024 )) || die "ROOT too small (<20GB)"
 
-if [[ "${SWAP_SIZE}" != "0" && "${SWAP_SIZE}" != "0GiB" ]]; then
-  sgdisk -n 2:0:+"${SWAP_SIZE}" -t 2:8200 -c 2:"SWAP" "${DISK}"
-  sgdisk -n 3:0:0 -t 3:8300 -c 3:"ROOT" "${DISK}"
-  ESP="$(part "$DISK" 1)"; SWP="$(part "$DISK" 2)"; ROOT="$(part "$DISK" 3)"
-else
-  sgdisk -n 2:0:0 -t 2:8300 -c 2:"ROOT" "${DISK}"
-  ESP="$(part "$DISK" 1)"; SWP=""; ROOT="$(part "$DISK" 2)"
-fi
+[ -z "$(lsblk -no MOUNTPOINT "$ESP")" ] || die "$ESP is mounted"
+[ -z "$(lsblk -no MOUNTPOINT "$ROOT")" ] || die "$ROOT is mounted"
 
-echo "EFI : $ESP"
-echo "SWAP: ${SWP:-<none>}"
-echo "ROOT: $ROOT"
+# -----------------------------------------------------
+# 5. 格式化（真正开始破坏性操作）
+# -----------------------------------------------------
+echo "[1/8] Formatting ${ESP} and ${ROOT}..."
+wipefs -af "$ESP"
+wipefs -af "$ROOT"
+mkfs.fat -F32 "$ESP"
+mkfs.ext4 -F "$ROOT"
 
-# ================= 格式化 =================
-echo "===== 格式化中 ====="
-mkfs.fat -F32 "${ESP}"
-mkfs.ext4 -F "${ROOT}"
-if [[ -n "${SWP}" ]]; then
-  mkswap "${SWP}"
-  swapon "${SWP}"
-fi
-
-# ================= 挂载 =================
-echo "===== 挂载中 ====="
-mount "${ROOT}" /mnt
+# -----------------------------------------------------
+# 6. 挂载
+# -----------------------------------------------------
+echo "[2/8] Mounting..."
+mount "$ROOT" /mnt
 mkdir -p /mnt/boot
-mount "${ESP}" /mnt/boot
+mount "$ESP" /mnt/boot
 
-# ================= 安装包列表（按环境切换） =================
-BASE_PKGS=(
-  base linux linux-firmware
-  grub efibootmgr
-  networkmanager sudo vim git
-  gnome gdm gnome-tweaks extension-manager
-  fcitx5 fcitx5-im fcitx5-chinese-addons
-  noto-fonts noto-fonts-cjk ttf-dejavu ttf-liberation
-  pipewire pipewire-alsa pipewire-pulse wireplumber
-  bluez bluez-utils
-  base-devel
-)
+# -----------------------------------------------------
+# 7. 安装系统 + 桌面 + 输入法
+# -----------------------------------------------------
+echo "[3/8] Installing base system, GNOME, input methods..."
+pacstrap /mnt \
+  base linux linux-firmware \
+  grub efibootmgr \
+  networkmanager sudo vim git \
+  gnome gnome-extra gdm \
+  xorg-xwayland \
+  noto-fonts noto-fonts-cjk noto-fonts-emoji \
+  fcitx5 fcitx5-gtk fcitx5-qt \
+  fcitx5-configtool fcitx5-chinese-addons fcitx5-rime
 
-# 真机：Intel 微码（XPS 8930 适用）
-if [[ "$ENV_TYPE" == "physical" ]]; then
-  BASE_PKGS+=(intel-ucode)
-fi
-
-# VMware：VMware 工具
-if [[ "$ENV_TYPE" == "vmware" ]]; then
-  BASE_PKGS+=(open-vm-tools)
-fi
-
-echo "===== pacstrap 安装系统（${ENV_TYPE}）====="
-pacstrap -K /mnt "${BASE_PKGS[@]}"
-
+# -----------------------------------------------------
+# 8. fstab
+# -----------------------------------------------------
+echo "[4/8] Generating fstab..."
 genfstab -U /mnt >> /mnt/etc/fstab
 
-# ================= chroot 配置 =================
-arch-chroot /mnt /bin/bash -euo pipefail <<CHROOT
-ln -sf /usr/share/zoneinfo/${TZ} /etc/localtime
+# -----------------------------------------------------
+# 9. 系统配置（chroot）
+# -----------------------------------------------------
+echo "[5/8] Configuring system..."
+arch-chroot /mnt /bin/bash <<EOF
+set -euo pipefail
+
+# timezone
+ln -sf /usr/share/zoneinfo/$TZ /etc/localtime
 hwclock --systohc
 
-sed -i "s/^#\\(${LOCALE} UTF-8\\)/\\1/" /etc/locale.gen
+# locales
+sed -i "s/^#${LANG_PRIMARY} UTF-8/${LANG_PRIMARY} UTF-8/" /etc/locale.gen || true
+sed -i "s/^#${LANG_FALLBACK} UTF-8/${LANG_FALLBACK} UTF-8/" /etc/locale.gen || true
 locale-gen
-echo "LANG=${LOCALE}" > /etc/locale.conf
-echo "KEYMAP=${KEYMAP}" > /etc/vconsole.conf
+echo "LANG=${LANG_PRIMARY}" > /etc/locale.conf
+echo "${KEYMAP}" > /etc/vconsole.conf
 
+# hostname
 echo "${HOSTNAME}" > /etc/hostname
-cat > /etc/hosts <<EOF
-127.0.0.1 localhost
-::1       localhost
-127.0.1.1 ${HOSTNAME}.localdomain ${HOSTNAME}
-EOF
 
-echo "root:${ROOTPW}" | chpasswd
-useradd -m -G wheel -s /bin/bash "${USERNAME}"
-echo "${USERNAME}:${USERPW}" | chpasswd
-sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
-
-# 启用服务
+# services
 systemctl enable NetworkManager
 systemctl enable gdm
-systemctl enable bluetooth
 
-# 真机建议：SSD TRIM
-if [[ "${ENV_TYPE}" == "physical" ]]; then
-  systemctl enable fstrim.timer
-fi
+# Wayland ensure enabled
+sed -i 's/^#WaylandEnable/WaylandEnable/' /etc/gdm/custom.conf || true
+grep -q '^WaylandEnable=true' /etc/gdm/custom.conf || echo 'WaylandEnable=true' >> /etc/gdm/custom.conf
 
-# VMware：启用 vmtoolsd
-if [[ "${ENV_TYPE}" == "vmware" ]]; then
-  systemctl enable vmtoolsd
-fi
-
-# 输入法环境变量（Wayland/X11 都通用）
-cat > /etc/environment <<EOF
+# Fcitx env
+cat > /etc/environment <<'ENV'
 GTK_IM_MODULE=fcitx
 QT_IM_MODULE=fcitx
 XMODIFIERS=@im=fcitx
+SDL_IM_MODULE=fcitx
+ENV
+
+# sudo: enable wheel
+sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
+
+# user
+id -u "${USERNAME}" >/dev/null 2>&1 || useradd -m -G "${USER_GROUPS}" -s /bin/bash "${USERNAME}"
+
+# GDM autologin
+sed -i 's/^#\s*AutomaticLoginEnable/AutomaticLoginEnable/' /etc/gdm/custom.conf || true
+sed -i 's/^#\s*AutomaticLogin/AutomaticLogin/' /etc/gdm/custom.conf || true
+grep -q '^AutomaticLoginEnable=' /etc/gdm/custom.conf || echo 'AutomaticLoginEnable=True' >> /etc/gdm/custom.conf
+grep -q '^AutomaticLogin=' /etc/gdm/custom.conf || echo "AutomaticLogin=${USERNAME}" >> /etc/gdm/custom.conf
+
+# GNOME input sources: avoid IBus interference (optional but stabilizes)
+mkdir -p /etc/dconf/db/local.d
+cat > /etc/dconf/db/local.d/01-input-sources <<'DCONF'
+[org/gnome/desktop/input-sources]
+sources=[('xkb','us')]
+DCONF
+dconf update || true
+
+# Fcitx5 profile: default IM = rime
+USER_HOME="/home/${USERNAME}"
+install -d -m 700 -o "${USERNAME}" -g "${USERNAME}" "\${USER_HOME}/.config/fcitx5"
+cat > "\${USER_HOME}/.config/fcitx5/profile" <<'PROFILE'
+[Groups/0]
+Name=Default
+Default Layout=us
+DefaultIM=rime
+
+[Groups/0/Items/0]
+Name=keyboard-us
+Layout=
+
+[Groups/0/Items/1]
+Name=rime
+Layout=
+
+[GroupOrder]
+0=Default
+PROFILE
+chown "${USERNAME}:${USERNAME}" "\${USER_HOME}/.config/fcitx5/profile"
+
+# Fcitx5 UI (optional)
+install -d -m 700 -o "${USERNAME}" -g "${USERNAME}" "\${USER_HOME}/.config/fcitx5/conf"
+cat > "\${USER_HOME}/.config/fcitx5/conf/classicui.conf" <<'CONF'
+Vertical Candidate List=False
+WheelForPaging=True
+Font="Sans 12"
+MenuFont="Sans 11"
+TrayFont="Sans 10"
+UseInputMethodLangaugeToDisplayText=True
+CONF
+chown -R "${USERNAME}:${USERNAME}" "\${USER_HOME}/.config/fcitx5/conf"
+
+# Rime: luna_pinyin_simp + Left Shift toggle
+RIME_DIR="\${USER_HOME}/.local/share/fcitx5/rime"
+install -d -m 700 -o "${USERNAME}" -g "${USERNAME}" "\${RIME_DIR}"
+
+cat > "\${RIME_DIR}/default.custom.yaml" <<'RIME'
+patch:
+  schema_list:
+    - schema: luna_pinyin_simp
+
+  ascii_composer:
+    switch_key:
+      Shift_L: toggle
+      Control_L: noop
+      Control_R: noop
+      Shift_R: commit_text
+
+  key_binder:
+    bindings:
+      - { when: composing, accept: Shift_L, send: ToggleAsciiMode }
+
+  "menu/page_size": 9
+RIME
+
+chown -R "${USERNAME}:${USERNAME}" "\${USER_HOME}/.local/share/fcitx5"
+
+# Bootloader: GRUB UEFI removable (safe for Ventoy coexist)
+grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=ArchUSB --removable
+grub-mkconfig -o /boot/grub/grub.cfg
 EOF
 
-# 写入安装环境标记（便于排查）
-echo "${ENV_TYPE}" > /etc/arch-install-env
+# -----------------------------------------------------
+# 10. 设置密码（唯一人工步骤）
+# -----------------------------------------------------
+echo "[6/8] Set passwords..."
+arch-chroot /mnt passwd
+arch-chroot /mnt passwd "${USERNAME}"
 
-# 安装 GRUB（UEFI）
-grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=ARCH
-grub-mkconfig -o /boot/grub/grub.cfg
-CHROOT
-
-echo
-echo "✅ 安装完成（环境：${ENV_TYPE}；磁盘：${DISK}）：即将卸载并重启"
+# -----------------------------------------------------
+# 11. 清理并结束
+# -----------------------------------------------------
+echo "[7/8] Cleanup..."
 umount -R /mnt
-reboot
+
+echo "[8/8] DONE"
+echo "Reboot and boot from the USB disk (UEFI)."
+echo "If IME doesn't show on first login: logout/login once or run: fcitx5 -r"
